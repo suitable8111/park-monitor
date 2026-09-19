@@ -1,4 +1,8 @@
-import { normalizePlate, extractPlate } from './plate.js';
+import { normalizePlate } from './plate.js';
+import { recognizePlate, warmupOcr } from './ocr.js';
+
+// 촬영 가이드 박스(중앙) 비율 — 이 영역만 잘라 인식
+const CROP_FRAC = { wf: 0.86, hf: 0.30 };
 
 // ── 상태 & API ────────────────────────────────────────────────
 const state = { token: localStorage.getItem('token') || null, user: null };
@@ -93,13 +97,16 @@ function switchTab(name) {
 let stream = null;
 const video = $('video'), canvas = $('canvas'), preview = $('preview'), ph = $('cameraPlaceholder');
 
+const guide = $('camGuide');
+
 $('startCamBtn').addEventListener('click', async () => {
   try {
     stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
     video.srcObject = stream;
     await video.play();
-    video.hidden = false; ph.hidden = true; preview.hidden = true;
+    video.hidden = false; guide.hidden = false; ph.hidden = true; preview.hidden = true;
     $('startCamBtn').hidden = true; $('captureBtn').hidden = false; $('stopCamBtn').hidden = false;
+    warmupOcr((m) => ($('ocrStatus').textContent = m)).catch(() => {}); // 미리 엔진 준비
   } catch {
     toast('카메라를 열 수 없습니다. 권한을 확인하거나 사진 업로드를 사용하세요.');
   }
@@ -108,18 +115,20 @@ $('stopCamBtn').addEventListener('click', stopCamera);
 function stopCamera() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
-  video.hidden = true;
+  video.hidden = true; guide.hidden = true;
   $('startCamBtn').hidden = false; $('captureBtn').hidden = true; $('stopCamBtn').hidden = true;
   if (!preview.src) ph.hidden = false;
 }
 
 $('captureBtn').addEventListener('click', () => {
+  // 미리보기: 전체 프레임
   canvas.width = video.videoWidth; canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
   preview.src = canvas.toDataURL('image/jpeg', 0.9);
-  preview.hidden = false; video.hidden = true; ph.hidden = true;
+  preview.hidden = false; video.hidden = true; guide.hidden = true; ph.hidden = true;
+  // 인식: 가이드 영역만 크롭
+  runOcr(canvas, { cropFrac: CROP_FRAC });
   stopCamera();
-  runOcr(preview.src);
 });
 
 $('fileInput').addEventListener('change', (e) => {
@@ -129,28 +138,29 @@ $('fileInput').addEventListener('change', (e) => {
   reader.onload = () => {
     preview.src = reader.result;
     preview.hidden = false; ph.hidden = true;
-    runOcr(reader.result);
+    const img = new Image();
+    img.onload = () => runOcr(img, {}); // 업로드 사진은 전체 인식
+    img.src = reader.result;
   };
   reader.readAsDataURL(file);
 });
 
-async function runOcr(imageData) {
-  if (typeof Tesseract === 'undefined') {
-    $('ocrStatus').textContent = 'OCR 엔진 로드 실패 — 번호를 직접 입력하세요.';
-    return;
-  }
-  $('ocrStatus').textContent = '글자 인식 중… (최초 실행 시 언어데이터 다운로드로 시간이 걸릴 수 있습니다)';
+async function runOcr(src, opts) {
+  const status = (m) => ($('ocrStatus').textContent = m);
   try {
-    const { data } = await Tesseract.recognize(imageData, 'kor+eng');
-    const candidate = extractPlate(data.text);
-    if (candidate) {
-      $('plateInput').value = candidate;
-      $('ocrStatus').textContent = `인식 결과: "${data.text.trim().replace(/\s+/g, ' ').slice(0, 40)}" → 확인·수정 후 조회하세요.`;
+    const r = await recognizePlate(src, opts, status);
+    if (r.plate) {
+      $('plateInput').value = r.plate;
+      status(
+        r.valid
+          ? `✓ 인식됨: ${r.plate} — 확인 후 조회하세요.`
+          : `인식 결과: "${r.raw.replace(/\s+/g, ' ').slice(0, 30)}" — 번호를 확인·수정 후 조회하세요.`
+      );
     } else {
-      $('ocrStatus').textContent = '번호를 인식하지 못했습니다. 직접 입력하세요.';
+      status('번호를 인식하지 못했습니다. 번호판이 가이드 박스를 꽉 채우도록 다시 촬영하거나 직접 입력하세요.');
     }
   } catch {
-    $('ocrStatus').textContent = 'OCR 처리 실패 — 번호를 직접 입력하세요.';
+    status('OCR 처리 실패 — 번호를 직접 입력하세요.');
   }
 }
 
