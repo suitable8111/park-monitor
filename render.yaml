@@ -1,0 +1,30 @@
+# Render.com 배포 설정 (Blueprint)
+# 사용법: GitHub 저장소를 Render에 연결 → "New +" → "Blueprint" 선택 → 이 파일 자동 인식
+#
+# ⚠️ 무료(free) 플랜은 영구 디스크를 지원하지 않아 SQLite 데이터가
+#    재배포/재시작 시 초기화됩니다(프로토타입에는 적합).
+#    실서비스로 데이터를 영구 보존하려면 아래 disk 블록의 주석을 풀고
+#    plan을 유료(starter 등)로 변경하세요.
+services:
+  - type: web
+    name: park-monitor
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: JWT_SECRET
+        generateValue: true        # 무작위 시크릿 자동 생성
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false                # 배포 시 대시보드에서 직접 입력(비공개)
+    # ── 데이터 영구 보존이 필요하면 plan을 유료로 바꾸고 아래 주석 해제 ──
+    #   - key: DB_PATH
+    #     value: /var/data/park.db
+    # disk:
+    #   name: park-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

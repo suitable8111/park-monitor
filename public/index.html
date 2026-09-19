@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>주차 단속 관리</title>
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body>
+  <!-- 로그인 화면 -->
+  <div id="loginView" class="login-wrap">
+    <form id="loginForm" class="login-card">
+      <div class="brand">🅿️ 주차 단속 관리</div>
+      <p class="brand-sub">아파트 관리소 · 운영진 로그인</p>
+      <label>아이디
+        <input id="loginUser" autocomplete="username" required />
+      </label>
+      <label>비밀번호
+        <input id="loginPass" type="password" autocomplete="current-password" required />
+      </label>
+      <button type="submit" class="btn primary block">로그인</button>
+      <p id="loginError" class="error"></p>
+    </form>
+  </div>
+
+  <!-- 메인 앱 -->
+  <div id="appView" hidden>
+    <header class="topbar">
+      <div class="topbar-title">🅿️ 주차 단속 관리</div>
+      <div class="topbar-right">
+        <span id="whoami" class="whoami"></span>
+        <button id="logoutBtn" class="btn ghost small">로그아웃</button>
+      </div>
+    </header>
+
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="scan">📷 단속</button>
+      <button class="tab" data-tab="vehicles">🚗 차량 관리</button>
+      <button class="tab" data-tab="logs">📋 단속 기록</button>
+      <button class="tab admin-only" data-tab="users" hidden>👤 사용자</button>
+      <button class="tab" data-tab="account">⚙️ 내 계정</button>
+    </nav>
+
+    <main class="content">
+      <!-- 단속 -->
+      <section id="tab-scan" class="tab-panel">
+        <div class="card">
+          <h2>차량번호 촬영 / 조회</h2>
+          <div class="camera-box">
+            <video id="video" playsinline muted hidden></video>
+            <canvas id="canvas" hidden></canvas>
+            <img id="preview" hidden alt="촬영 이미지" />
+            <div id="cameraPlaceholder" class="camera-placeholder">
+              카메라를 켜거나 사진을 업로드하세요
+            </div>
+          </div>
+          <div class="btn-row">
+            <button id="startCamBtn" class="btn">카메라 켜기</button>
+            <button id="captureBtn" class="btn primary" hidden>촬영</button>
+            <button id="stopCamBtn" class="btn ghost" hidden>끄기</button>
+            <label class="btn file-btn">사진 업로드
+              <input id="fileInput" type="file" accept="image/*" hidden />
+            </label>
+          </div>
+          <p id="ocrStatus" class="hint"></p>
+
+          <label class="plate-label">차량번호 (인식 결과 확인·수정)
+            <input id="plateInput" class="plate-input" placeholder="예: 21다2312" autocapitalize="off" />
+          </label>
+          <div class="btn-row">
+            <button id="lookupBtn" class="btn">조회</button>
+            <button id="saveScanBtn" class="btn primary">단속 기록 저장</button>
+          </div>
+
+          <div id="scanResult" class="result-box" hidden></div>
+        </div>
+      </section>
+
+      <!-- 차량 관리 -->
+      <section id="tab-vehicles" class="tab-panel" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h2>차량 관리</h2>
+            <button id="addVehicleBtn" class="btn primary small">+ 차량 등록</button>
+          </div>
+          <div class="filter-row">
+            <input id="vehSearch" placeholder="번호/이름/동·호 검색" />
+            <select id="vehTypeFilter">
+              <option value="">전체</option>
+              <option value="resident">입주민</option>
+              <option value="visitor">방문객</option>
+            </select>
+          </div>
+          <div id="vehicleList" class="list"></div>
+        </div>
+      </section>
+
+      <!-- 단속 기록 -->
+      <section id="tab-logs" class="tab-panel" hidden>
+        <div class="card">
+          <h2>단속 기록</h2>
+          <div class="filter-row">
+            <input id="logSearch" placeholder="번호 검색" />
+            <select id="logResultFilter">
+              <option value="">전체</option>
+              <option value="resident">입주민</option>
+              <option value="visitor_valid">방문객(유효)</option>
+              <option value="visitor_expired">방문객(만료)</option>
+              <option value="unknown">미인식</option>
+            </select>
+          </div>
+          <div id="logList" class="list"></div>
+        </div>
+      </section>
+
+      <!-- 사용자 관리 -->
+      <section id="tab-users" class="tab-panel" hidden>
+        <div class="card">
+          <div class="card-head">
+            <h2>사용자 관리</h2>
+            <button id="addUserBtn" class="btn primary small">+ 계정 추가</button>
+          </div>
+          <div id="userList" class="list"></div>
+        </div>
+      </section>
+
+      <!-- 내 계정 -->
+      <section id="tab-account" class="tab-panel" hidden>
+        <div class="card">
+          <h2>비밀번호 변경</h2>
+          <form id="pwForm">
+            <label>현재 비밀번호<input id="curPw" type="password" required /></label>
+            <label>새 비밀번호<input id="newPw" type="password" required /></label>
+            <button class="btn primary" type="submit">변경</button>
+            <p id="pwMsg" class="hint"></p>
+          </form>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- 모달 -->
+  <div id="modal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="modalTitle"></h3>
+        <button id="modalClose" class="btn ghost small">✕</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>

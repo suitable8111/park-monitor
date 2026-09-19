@@ -1,0 +1,19 @@
+{
+  "name": "park-monitor",
+  "version": "0.1.0",
+  "description": "아파트 주차 단속 관리 프로그램 (프로토타입)",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
