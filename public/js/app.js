@@ -126,6 +126,7 @@ $('captureBtn').addEventListener('click', () => {
   canvas.getContext('2d').drawImage(video, 0, 0);
   preview.src = canvas.toDataURL('image/jpeg', 0.9);
   preview.hidden = false; video.hidden = true; guide.hidden = true; ph.hidden = true;
+  $('clearBtn').hidden = false;
   // 인식: 가이드 영역만 크롭
   runOcr(canvas, { cropFrac: CROP_FRAC });
   stopCamera();
@@ -138,12 +139,26 @@ $('fileInput').addEventListener('change', (e) => {
   reader.onload = () => {
     preview.src = reader.result;
     preview.hidden = false; ph.hidden = true;
+    $('clearBtn').hidden = false;
     const img = new Image();
     img.onload = () => runOcr(img, {}); // 업로드 사진은 전체 인식
     img.src = reader.result;
   };
   reader.readAsDataURL(file);
 });
+
+// 사진 지우기 → 초기화 후 바로 다음 차량 촬영/업로드 가능
+$('clearBtn').addEventListener('click', resetScan);
+function resetScan() {
+  stopCamera();
+  preview.src = ''; preview.hidden = true;
+  ph.hidden = false;
+  $('plateInput').value = '';
+  $('scanResult').hidden = true;
+  $('ocrStatus').textContent = '';
+  $('fileInput').value = ''; // 같은 파일 재업로드 가능하도록 초기화
+  $('clearBtn').hidden = true;
+}
 
 async function runOcr(src, opts) {
   const status = (m) => ($('ocrStatus').textContent = m);
@@ -153,9 +168,10 @@ async function runOcr(src, opts) {
       $('plateInput').value = r.plate;
       status(
         r.valid
-          ? `✓ 인식됨: ${r.plate} — 확인 후 조회하세요.`
-          : `인식 결과: "${r.raw.replace(/\s+/g, ' ').slice(0, 30)}" — 번호를 확인·수정 후 조회하세요.`
+          ? `✓ 인식됨: ${r.plate} — 자동 조회합니다.`
+          : `인식 결과: "${r.raw.replace(/\s+/g, ' ').slice(0, 30)}" — 자동 조회하니 필요 시 수정하세요.`
       );
+      doScan(false); // 인식되면 바로 자동 조회
     } else {
       status('번호를 인식하지 못했습니다. 번호판이 가이드 박스를 꽉 채우도록 다시 촬영하거나 직접 입력하세요.');
     }
