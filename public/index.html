@@ -48,7 +48,13 @@
           <h2>차량번호 촬영 / 조회</h2>
           <div class="camera-box">
             <video id="video" playsinline muted hidden></video>
-            <div id="camGuide" class="cam-guide" hidden><span>번호판을 이 안에 꽉 채우세요</span></div>
+            <div id="camGuide" class="cam-guide" hidden>
+              <div class="cam-mask top"></div>
+              <div class="cam-mask bottom"></div>
+              <div class="cam-mask left"></div>
+              <div class="cam-mask right"></div>
+              <div class="cam-window"><span>번호판을 이 안에 꽉 채우세요</span></div>
+            </div>
             <canvas id="canvas" hidden></canvas>
             <img id="preview" hidden alt="촬영 이미지" />
             <div id="cameraPlaceholder" class="camera-placeholder">
@@ -64,7 +70,10 @@
             </label>
             <button id="clearBtn" class="btn ghost" hidden>🗑 사진 지우기</button>
           </div>
-          <p id="ocrStatus" class="hint"></p>
+          <div class="ocr-line">
+            <span id="ocrSpin" class="spinner" hidden></span>
+            <span id="ocrStatus" class="hint"></span>
+          </div>
 
           <label class="plate-label">차량번호 (인식 결과 확인·수정)
             <input id="plateInput" class="plate-input" placeholder="예: 21다2312" autocapitalize="off" />

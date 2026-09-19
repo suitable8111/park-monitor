@@ -99,6 +99,7 @@ let stream = null;
 const video = $('video'), canvas = $('canvas'), preview = $('preview'), ph = $('cameraPlaceholder');
 
 const guide = $('camGuide');
+const spin = (on) => ($('ocrSpin').hidden = !on); // 인식 중 동글 스피너
 
 let liveScanning = false;
 let scanTimer = null;
@@ -112,6 +113,7 @@ $('startCamBtn').addEventListener('click', async () => {
     await video.play();
     video.hidden = false; guide.hidden = false; ph.hidden = true; preview.hidden = true;
     $('startCamBtn').hidden = true; $('captureBtn').hidden = false; $('stopCamBtn').hidden = false;
+    spin(true);
     $('ocrStatus').textContent = 'OCR 엔진 준비 중…';
     await warmupOcr((m) => ($('ocrStatus').textContent = m)).catch(() => {});
     startLiveScan(); // 실시간 연속 스캔 시작
@@ -127,7 +129,7 @@ function stopCamera() {
   stream = null;
   video.hidden = true; guide.hidden = true;
   $('startCamBtn').hidden = false; $('captureBtn').hidden = true; $('stopCamBtn').hidden = true;
-  if (!preview.src) ph.hidden = false;
+  if (!preview.src) { ph.hidden = false; spin(false); }
 }
 
 // 현재 비디오 프레임을 캔버스로
@@ -141,6 +143,7 @@ function grabFrame() {
 // 실시간 연속 스캔: 선명하게 잡히는 프레임에서 자동 인식·조회
 async function startLiveScan() {
   liveScanning = true;
+  spin(true);
   $('ocrStatus').textContent = '스캔 중… 번호판을 가이드 박스 안에 맞춰 주세요.';
   const tick = async () => {
     if (!liveScanning || !stream) return;
@@ -163,6 +166,7 @@ function lockFrame(r) {
   preview.hidden = false; video.hidden = true; guide.hidden = true; ph.hidden = true;
   $('clearBtn').hidden = false;
   stopCamera();
+  spin(false);
   $('plateInput').value = r.plate;
   $('ocrStatus').textContent = `✓ 인식됨: ${r.plate} — 자동 조회합니다.`;
   doScan(false);
@@ -204,12 +208,14 @@ function resetScan() {
   $('plateInput').value = '';
   $('scanResult').hidden = true;
   $('ocrStatus').textContent = '';
+  spin(false);
   $('fileInput').value = ''; // 같은 파일 재업로드 가능하도록 초기화
   $('clearBtn').hidden = true;
 }
 
 async function runOcr(src, opts) {
   const status = (m) => ($('ocrStatus').textContent = m);
+  spin(true);
   try {
     const r = await recognizePlate(src, opts, status);
     if (r.plate) {
@@ -225,6 +231,8 @@ async function runOcr(src, opts) {
     }
   } catch {
     status('OCR 처리 실패 — 번호를 직접 입력하세요.');
+  } finally {
+    spin(false);
   }
 }
 
