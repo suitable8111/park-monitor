@@ -1,5 +1,5 @@
 import { normalizePlate } from './plate.js';
-import { recognizePlate, warmupOcr } from './ocr.js';
+import { recognizePlate, recognizePlateQuick, warmupOcr } from './ocr.js';
 
 // 촬영 가이드 박스(중앙) 비율 — 이 영역만 잘라 인식
 const CROP_FRAC = { wf: 0.86, hf: 0.30 };
@@ -88,6 +88,7 @@ $('tabs').addEventListener('click', (e) => {
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach((p) => (p.hidden = p.id !== 'tab-' + name));
+  if (name !== 'scan') stopCamera(); // 다른 탭으로 가면 카메라·스캔 정지
   if (name === 'vehicles') loadVehicles();
   if (name === 'logs') loadLogs();
   if (name === 'users') loadUsers();
@@ -99,20 +100,29 @@ const video = $('video'), canvas = $('canvas'), preview = $('preview'), ph = $('
 
 const guide = $('camGuide');
 
+let liveScanning = false;
+let scanTimer = null;
+
 $('startCamBtn').addEventListener('click', async () => {
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+    });
     video.srcObject = stream;
     await video.play();
     video.hidden = false; guide.hidden = false; ph.hidden = true; preview.hidden = true;
     $('startCamBtn').hidden = true; $('captureBtn').hidden = false; $('stopCamBtn').hidden = false;
-    warmupOcr((m) => ($('ocrStatus').textContent = m)).catch(() => {}); // 미리 엔진 준비
+    $('ocrStatus').textContent = 'OCR 엔진 준비 중…';
+    await warmupOcr((m) => ($('ocrStatus').textContent = m)).catch(() => {});
+    startLiveScan(); // 실시간 연속 스캔 시작
   } catch {
     toast('카메라를 열 수 없습니다. 권한을 확인하거나 사진 업로드를 사용하세요.');
   }
 });
 $('stopCamBtn').addEventListener('click', stopCamera);
 function stopCamera() {
+  liveScanning = false;
+  if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
   video.hidden = true; guide.hidden = true;
@@ -120,15 +130,53 @@ function stopCamera() {
   if (!preview.src) ph.hidden = false;
 }
 
-$('captureBtn').addEventListener('click', () => {
-  // 미리보기: 전체 프레임
-  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  preview.src = canvas.toDataURL('image/jpeg', 0.9);
+// 현재 비디오 프레임을 캔버스로
+function grabFrame() {
+  const c = document.createElement('canvas');
+  c.width = video.videoWidth; c.height = video.videoHeight;
+  c.getContext('2d').drawImage(video, 0, 0);
+  return c;
+}
+
+// 실시간 연속 스캔: 선명하게 잡히는 프레임에서 자동 인식·조회
+async function startLiveScan() {
+  liveScanning = true;
+  $('ocrStatus').textContent = '스캔 중… 번호판을 가이드 박스 안에 맞춰 주세요.';
+  const tick = async () => {
+    if (!liveScanning || !stream) return;
+    try {
+      const r = await recognizePlateQuick(grabFrame(), CROP_FRAC);
+      if (!liveScanning) return; // 스캔 중 중단됐으면 무시
+      if (r.valid) { lockFrame(r); return; }
+    } catch { /* 프레임 실패는 무시하고 계속 */ }
+    scanTimer = setTimeout(tick, 300);
+  };
+  tick();
+}
+
+// 유효 번호판을 찾으면 프레임 고정 + 자동 조회
+function lockFrame(r) {
+  const frame = grabFrame();
+  liveScanning = false;
+  if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+  preview.src = frame.toDataURL('image/jpeg', 0.9);
   preview.hidden = false; video.hidden = true; guide.hidden = true; ph.hidden = true;
   $('clearBtn').hidden = false;
-  // 인식: 가이드 영역만 크롭
-  runOcr(canvas, { cropFrac: CROP_FRAC });
+  stopCamera();
+  $('plateInput').value = r.plate;
+  $('ocrStatus').textContent = `✓ 인식됨: ${r.plate} — 자동 조회합니다.`;
+  doScan(false);
+}
+
+// 수동 촬영: 지금 프레임으로 전체 다단계 인식(연속 스캔이 안 잡힐 때)
+$('captureBtn').addEventListener('click', () => {
+  const frame = grabFrame();
+  liveScanning = false;
+  if (scanTimer) { clearTimeout(scanTimer); scanTimer = null; }
+  preview.src = frame.toDataURL('image/jpeg', 0.9);
+  preview.hidden = false; video.hidden = true; guide.hidden = true; ph.hidden = true;
+  $('clearBtn').hidden = false;
+  runOcr(frame, { cropFrac: CROP_FRAC });
   stopCamera();
 });
 

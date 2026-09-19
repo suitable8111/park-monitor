@@ -70,29 +70,54 @@ function preprocess(src, upscale = 2) {
   return c;
 }
 
+// 워커는 한 번에 한 작업만 처리 → 호출 직렬화 (실시간 스캔 + 수동 촬영 동시 실행 대비)
+let chain = Promise.resolve();
+function serialize(task) {
+  const run = chain.then(task, task);
+  chain = run.then(() => {}, () => {});
+  return run;
+}
+
 async function recognize(canvas, psm) {
   const w = await warmupOcr();
-  await w.setParameters({ tessedit_pageseg_mode: String(psm) });
-  const { data } = await w.recognize(canvas.toDataURL('image/png'));
-  return { text: (data.text || '').trim(), confidence: data.confidence || 0 };
+  const url = canvas.toDataURL('image/png');
+  return serialize(async () => {
+    await w.setParameters({ tessedit_pageseg_mode: String(psm) });
+    const { data } = await w.recognize(url);
+    return { text: (data.text || '').trim(), confidence: data.confidence || 0 };
+  });
 }
 
 // 카메라 촬영: 가이드 박스만 크롭(중앙). 업로드: 위치 추정 크롭 여러 개 시도.
+// 전체 프레임 기반(업로드/폴백) 시도
+const WHOLE_PLANS = [
+  { crop: { cx: 0.5, cy: 0.56, wf: 0.8, hf: 0.34 }, pre: true, psm: 8 },
+  { crop: { cx: 0.5, cy: 0.5, wf: 0.9, hf: 0.42 }, pre: true, psm: 8 },
+  { crop: null, pre: true, psm: 11 }, // 전체에서 흩어진 텍스트 탐색
+  { crop: null, pre: false, psm: 3 }, // 최후 자동
+];
+
 function plansFor(cropFrac) {
-  if (cropFrac) {
-    const crop = { cx: 0.5, cy: 0.5, ...cropFrac };
-    return [
-      { crop, pre: true, psm: 8 },   // 단어 모드 + 전처리 (가장 정확)
-      { crop, pre: true, psm: 7 },   // 한 줄 모드
-      { crop, pre: false, psm: 8 },  // 색/엠보싱 대비 원본
-    ];
-  }
+  if (!cropFrac) return WHOLE_PLANS;
+  const c = { cx: 0.5, cy: 0.5, ...cropFrac };
+  const wider = { cx: 0.5, cy: 0.5, wf: Math.min(1, cropFrac.wf * 1.2), hf: Math.min(1, cropFrac.hf * 1.5) };
+  const tighter = { cx: 0.5, cy: 0.5, wf: cropFrac.wf * 0.75, hf: cropFrac.hf * 0.8 };
   return [
-    { crop: { cx: 0.5, cy: 0.56, wf: 0.8, hf: 0.34 }, pre: true, psm: 8 },
-    { crop: { cx: 0.5, cy: 0.5, wf: 0.9, hf: 0.42 }, pre: true, psm: 8 },
-    { crop: null, pre: true, psm: 11 }, // 전체에서 흩어진 텍스트 탐색
-    { crop: null, pre: false, psm: 3 }, // 최후 자동
+    { crop: c, pre: true, psm: 8 },      // 가이드 영역 + 전처리 (가장 정확)
+    { crop: c, pre: true, psm: 7 },      // 한 줄 모드
+    { crop: wider, pre: true, psm: 8 },  // 번호판이 박스보다 클 때
+    { crop: tighter, pre: true, psm: 8 },// 번호판이 박스보다 작을 때
+    ...WHOLE_PLANS,                       // 그래도 실패하면 전체 프레임 재시도
   ];
+}
+
+// 실시간 연속 스캔용 경량 인식 (프레임당 1회 시도, 가이드 박스 크롭 + 전처리 + 단어모드)
+export async function recognizePlateQuick(src, cropFrac) {
+  await warmupOcr();
+  const base = toCanvas(src, { cx: 0.5, cy: 0.5, ...cropFrac });
+  const r = await recognize(preprocess(base), 8);
+  const plate = extractPlate(r.text);
+  return { plate, valid: isValidPlate(plate), raw: r.text, confidence: Math.round(r.confidence) };
 }
 
 // 반환: { plate, valid, raw, confidence }
