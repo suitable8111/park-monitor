@@ -46,7 +46,7 @@
       <section id="tab-scan" class="tab-panel">
         <div class="card">
           <h2>차량번호 촬영 / 조회</h2>
-          <div class="camera-box">
+          <div class="camera-box" id="cameraBox">
             <video id="video" playsinline muted hidden></video>
             <div id="camGuide" class="cam-guide" hidden>
               <div class="cam-mask top"></div>
@@ -72,6 +72,7 @@
           </div>
           <div class="ocr-line">
             <span id="ocrSpin" class="spinner" hidden></span>
+            <span id="ocrBlink" class="blink-dot" hidden></span>
             <span id="ocrStatus" class="hint"></span>
           </div>
 

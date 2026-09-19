@@ -82,6 +82,7 @@ input, select, textarea, button { font-family: inherit; font-size: 16px; }
 .camera-box {
   position: relative;
   background: #0f172a; border-radius: var(--radius); overflow: hidden; aspect-ratio: 4/3;
+  max-height: 72vh; /* 세로 영상이 화면을 넘지 않도록 */
   display: flex; align-items: center; justify-content: center;
 }
 /* 가이드: 창(window) 밖 영역은 블러 + 어둡게 처리해 조준을 도움 */
@@ -112,6 +113,13 @@ input, select, textarea, button { font-family: inherit; font-size: 16px; }
   animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* 실시간 스캔 중 깜빡이는 점 */
+.blink-dot {
+  width: 10px; height: 10px; flex-shrink: 0; border-radius: 50%;
+  background: #22d3ee; animation: blink 1s ease-in-out infinite;
+}
+@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .15; } }
 .camera-box video, .camera-box img { width: 100%; height: 100%; object-fit: contain; }
 .camera-placeholder { color: #94a3b8; font-size: 14px; padding: 20px; text-align: center; }
 

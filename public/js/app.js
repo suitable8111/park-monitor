@@ -99,7 +99,10 @@ let stream = null;
 const video = $('video'), canvas = $('canvas'), preview = $('preview'), ph = $('cameraPlaceholder');
 
 const guide = $('camGuide');
-const spin = (on) => ($('ocrSpin').hidden = !on); // 인식 중 동글 스피너
+const spin = (on) => ($('ocrSpin').hidden = !on);   // 촬영/업로드 후 처리 중 동글 스피너
+const blink = (on) => ($('ocrBlink').hidden = !on); // 실시간 스캔 중 깜빡이 점
+// 카메라 박스를 실제 영상/사진 비율에 맞춤 (세로 영상도 꽉 차게)
+const setBoxAspect = (w, h) => { if (w && h) $('cameraBox').style.aspectRatio = `${w} / ${h}`; };
 
 let liveScanning = false;
 let scanTimer = null;
@@ -111,9 +114,11 @@ $('startCamBtn').addEventListener('click', async () => {
     });
     video.srcObject = stream;
     await video.play();
+    setBoxAspect(video.videoWidth, video.videoHeight); // 세로/가로 영상 비율에 박스 맞춤
+    video.addEventListener('loadedmetadata', () => setBoxAspect(video.videoWidth, video.videoHeight), { once: true });
     video.hidden = false; guide.hidden = false; ph.hidden = true; preview.hidden = true;
     $('startCamBtn').hidden = true; $('captureBtn').hidden = false; $('stopCamBtn').hidden = false;
-    spin(true);
+    spin(true); blink(false);
     $('ocrStatus').textContent = 'OCR 엔진 준비 중…';
     await warmupOcr((m) => ($('ocrStatus').textContent = m)).catch(() => {});
     startLiveScan(); // 실시간 연속 스캔 시작
@@ -128,6 +133,7 @@ function stopCamera() {
   if (stream) stream.getTracks().forEach((t) => t.stop());
   stream = null;
   video.hidden = true; guide.hidden = true;
+  blink(false);
   $('startCamBtn').hidden = false; $('captureBtn').hidden = true; $('stopCamBtn').hidden = true;
   if (!preview.src) { ph.hidden = false; spin(false); }
 }
@@ -143,8 +149,8 @@ function grabFrame() {
 // 실시간 연속 스캔: 선명하게 잡히는 프레임에서 자동 인식·조회
 async function startLiveScan() {
   liveScanning = true;
-  spin(true);
-  $('ocrStatus').textContent = '스캔 중… 번호판을 가이드 박스 안에 맞춰 주세요.';
+  spin(false); blink(true); // 스캔 중엔 스피너 대신 깜빡이 점
+  $('ocrStatus').textContent = '스캔 중… 번호판을 가이드 박스 안에 맞춰 주세요. (가로로 눕히면 더 정확)';
   const tick = async () => {
     if (!liveScanning || !stream) return;
     try {
@@ -166,7 +172,7 @@ function lockFrame(r) {
   preview.hidden = false; video.hidden = true; guide.hidden = true; ph.hidden = true;
   $('clearBtn').hidden = false;
   stopCamera();
-  spin(false);
+  spin(false); blink(false);
   $('plateInput').value = r.plate;
   $('ocrStatus').textContent = `✓ 인식됨: ${r.plate} — 자동 조회합니다.`;
   doScan(false);
@@ -193,7 +199,10 @@ $('fileInput').addEventListener('change', (e) => {
     preview.hidden = false; ph.hidden = true;
     $('clearBtn').hidden = false;
     const img = new Image();
-    img.onload = () => runOcr(img, {}); // 업로드 사진은 전체 인식
+    img.onload = () => {
+      setBoxAspect(img.naturalWidth, img.naturalHeight); // 사진 비율에 박스 맞춤
+      runOcr(img, {}); // 업로드 사진은 전체 인식
+    };
     img.src = reader.result;
   };
   reader.readAsDataURL(file);
@@ -208,14 +217,15 @@ function resetScan() {
   $('plateInput').value = '';
   $('scanResult').hidden = true;
   $('ocrStatus').textContent = '';
-  spin(false);
+  spin(false); blink(false);
+  $('cameraBox').style.aspectRatio = ''; // 박스 비율 기본값(4/3)으로 복귀
   $('fileInput').value = ''; // 같은 파일 재업로드 가능하도록 초기화
   $('clearBtn').hidden = true;
 }
 
 async function runOcr(src, opts) {
   const status = (m) => ($('ocrStatus').textContent = m);
-  spin(true);
+  blink(false); spin(true); // 촬영/업로드 후 처리: 동글 스피너
   try {
     const r = await recognizePlate(src, opts, status);
     if (r.plate) {

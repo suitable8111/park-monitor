@@ -45,8 +45,8 @@ function toCanvas(src, crop) {
   return c;
 }
 
-// 그레이스케일 + 이진화 + 업스케일
-function preprocess(src, upscale = 2) {
+// 업스케일 후 그레이스케일 이미지 데이터 준비 (공통)
+function grayscaleUpscaled(src, upscale = 2) {
   const c = document.createElement('canvas');
   c.width = src.width * upscale;
   c.height = src.height * upscale;
@@ -55,12 +55,18 @@ function preprocess(src, upscale = 2) {
   x.drawImage(src, 0, 0, c.width, c.height);
   const img = x.getImageData(0, 0, c.width, c.height);
   const d = img.data;
-  let sum = 0;
   for (let i = 0; i < d.length; i += 4) {
     const g = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
     d[i] = d[i + 1] = d[i + 2] = g;
-    sum += g;
   }
+  return { c, x, img, d };
+}
+
+// 이진화(흑백 2치) — 선명한 번호판에 강함
+function binarize(src, upscale = 2) {
+  const { c, x, img, d } = grayscaleUpscaled(src, upscale);
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += d[i];
   const th = (sum / (d.length / 4)) * 0.88;
   for (let i = 0; i < d.length; i += 4) {
     const v = d[i] < th ? 0 : 255;
@@ -68,6 +74,35 @@ function preprocess(src, upscale = 2) {
   }
   x.putImageData(img, 0, 0);
   return c;
+}
+
+// 대비 보정(명암 스트레칭) — 엠보싱/조명 있는 실제 번호판에 강함(원본 계조 유지)
+function enhance(src, upscale = 2) {
+  const { c, x, img, d } = grayscaleUpscaled(src, upscale);
+  // 히스토그램으로 2%~98% 지점을 찾아 그 구간을 0~255로 늘림
+  const hist = new Array(256).fill(0);
+  const n = d.length / 4;
+  for (let i = 0; i < d.length; i += 4) hist[d[i] | 0]++;
+  const lo = percentile(hist, n, 0.02), hi = percentile(hist, n, 0.98);
+  const range = Math.max(1, hi - lo);
+  for (let i = 0; i < d.length; i += 4) {
+    let v = ((d[i] - lo) / range) * 255;
+    v = v < 0 ? 0 : v > 255 ? 255 : v;
+    d[i] = d[i + 1] = d[i + 2] = v;
+  }
+  x.putImageData(img, 0, 0);
+  return c;
+}
+function percentile(hist, n, p) {
+  let acc = 0, target = n * p;
+  for (let v = 0; v < 256; v++) { acc += hist[v]; if (acc >= target) return v; }
+  return 255;
+}
+
+function processImg(canvas, proc) {
+  if (proc === 'bin') return binarize(canvas);
+  if (proc === 'enh') return enhance(canvas);
+  return canvas; // null = 원본 그대로
 }
 
 // 워커는 한 번에 한 작업만 처리 → 호출 직렬화 (실시간 스캔 + 수동 촬영 동시 실행 대비)
@@ -89,12 +124,13 @@ async function recognize(canvas, psm) {
 }
 
 // 카메라 촬영: 가이드 박스만 크롭(중앙). 업로드: 위치 추정 크롭 여러 개 시도.
-// 전체 프레임 기반(업로드/폴백) 시도
+// 전체 프레임 기반(업로드/폴백) 시도. proc: 'bin'(이진화) | 'enh'(대비보정) | null(원본)
 const WHOLE_PLANS = [
-  { crop: { cx: 0.5, cy: 0.56, wf: 0.8, hf: 0.34 }, pre: true, psm: 8 },
-  { crop: { cx: 0.5, cy: 0.5, wf: 0.9, hf: 0.42 }, pre: true, psm: 8 },
-  { crop: null, pre: true, psm: 11 }, // 전체에서 흩어진 텍스트 탐색
-  { crop: null, pre: false, psm: 3 }, // 최후 자동
+  { crop: { cx: 0.5, cy: 0.56, wf: 0.8, hf: 0.34 }, proc: 'bin', psm: 8 },
+  { crop: { cx: 0.5, cy: 0.56, wf: 0.8, hf: 0.34 }, proc: 'enh', psm: 8 },
+  { crop: { cx: 0.5, cy: 0.5, wf: 0.9, hf: 0.42 }, proc: 'bin', psm: 8 },
+  { crop: null, proc: 'bin', psm: 11 }, // 전체에서 흩어진 텍스트 탐색
+  { crop: null, proc: null, psm: 3 },   // 최후: 원본 그대로 자동
 ];
 
 function plansFor(cropFrac) {
@@ -103,19 +139,20 @@ function plansFor(cropFrac) {
   const wider = { cx: 0.5, cy: 0.5, wf: Math.min(1, cropFrac.wf * 1.2), hf: Math.min(1, cropFrac.hf * 1.5) };
   const tighter = { cx: 0.5, cy: 0.5, wf: cropFrac.wf * 0.75, hf: cropFrac.hf * 0.8 };
   return [
-    { crop: c, pre: true, psm: 8 },      // 가이드 영역 + 전처리 (가장 정확)
-    { crop: c, pre: true, psm: 7 },      // 한 줄 모드
-    { crop: wider, pre: true, psm: 8 },  // 번호판이 박스보다 클 때
-    { crop: tighter, pre: true, psm: 8 },// 번호판이 박스보다 작을 때
-    ...WHOLE_PLANS,                       // 그래도 실패하면 전체 프레임 재시도
+    { crop: c, proc: 'bin', psm: 8 },      // 가이드 영역 + 이진화 (가장 정확)
+    { crop: c, proc: 'enh', psm: 8 },      // 대비보정(엠보싱/조명 대응)
+    { crop: c, proc: 'bin', psm: 7 },      // 한 줄 모드
+    { crop: wider, proc: 'bin', psm: 8 },  // 번호판이 박스보다 클 때
+    { crop: tighter, proc: 'enh', psm: 8 },// 번호판이 박스보다 작을 때
+    ...WHOLE_PLANS,                          // 그래도 실패하면 전체 프레임 재시도
   ];
 }
 
-// 실시간 연속 스캔용 경량 인식 (프레임당 1회 시도, 가이드 박스 크롭 + 전처리 + 단어모드)
+// 실시간 연속 스캔용 경량 인식 (프레임당 1회 시도, 가이드 박스 크롭 + 이진화 + 단어모드)
 export async function recognizePlateQuick(src, cropFrac) {
   await warmupOcr();
   const base = toCanvas(src, { cx: 0.5, cy: 0.5, ...cropFrac });
-  const r = await recognize(preprocess(base), 8);
+  const r = await recognize(binarize(base), 8);
   const plate = extractPlate(r.text);
   return { plate, valid: isValidPlate(plate), raw: r.text, confidence: Math.round(r.confidence) };
 }
@@ -128,7 +165,7 @@ export async function recognizePlate(src, { cropFrac } = {}, onStatus) {
   const attempts = [];
   for (const p of plansFor(cropFrac)) {
     const base = toCanvas(src, p.crop);
-    const canvas = p.pre ? preprocess(base) : base;
+    const canvas = processImg(base, p.proc);
     const r = await recognize(canvas, p.psm);
     const plate = extractPlate(r.text);
     attempts.push({ ...r, plate });
